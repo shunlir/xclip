@@ -63,6 +63,9 @@ char *rec_typ;
 
 int tempi = 0;
 
+/* timestamp of taking owner of selection */
+Time g_time_sel_owned;
+
 /* Use XrmParseCommand to parse command line options to option variable */
 static void
 doOptMain(int argc, char *argv[])
@@ -216,6 +219,7 @@ doIn(Window win, const char *progname)
     unsigned long sel_all = 0;	/* allocated size of sel_buf */
     XEvent evt;			/* X Event Structures */
     int dloop = 0;		/* done loops counter */
+    Time tm_stamp = CurrentTime;
 
     /* in mode */
     sel_all = 16;		/* Reasonable ballpark figure */
@@ -283,13 +287,21 @@ doIn(Window win, const char *progname)
     /* take control of the selection so that we receive
      * SelectionRequest events from other windows
      */
-    /* FIXME: Should not use CurrentTime, according to ICCCM section 2.1 */
-    XSetSelectionOwner(dpy, sseln, win, CurrentTime);
+    tm_stamp = xctimestamp(dpy, win);
+    XSetSelectionOwner(dpy, sseln, win, tm_stamp);
+    if (XGetSelectionOwner(dpy, sseln) == win) {
+        g_time_sel_owned = tm_stamp;
+    } else {
+        fprintf(stderr, "Failed to owen selection\n");
+        return EXIT_FAILURE;
+    }
 
     /* fork into the background, exit parent process if we
      * are in silent mode
      */
     if (fverb == OSILENT) {
+	fclose(stdout);
+	fclose(stderr);
 	pid_t pid;
 
 	pid = fork();

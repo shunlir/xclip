@@ -89,6 +89,61 @@ mach_itemsize(int format)
     return 0;
 }
 
+/* The property to get notification from X server */
+static Atom _XCLIP_TIMESTAMP;
+
+/* Predicate to check whether this is a timestamp event */
+static Bool
+istsevt(Display * dpy,
+        XEvent *e,
+        XPointer arg)
+{
+    if (e->type == PropertyNotify
+        && e->xproperty.atom == _XCLIP_TIMESTAMP
+        && e->xproperty.window == *(Window *)arg)
+    {
+        return True;
+    }
+    return False;
+}
+
+/* Get timestamp from X server */
+Time
+xctimestamp(Display * dpy,
+            Window win)
+{
+    if (!_XCLIP_TIMESTAMP) {
+        _XCLIP_TIMESTAMP = XInternAtom(dpy, "_XCLIP_TIMESTAMP", False);
+    }
+
+    XChangeProperty(
+        dpy,
+        win,
+        _XCLIP_TIMESTAMP,               /* Property. */
+        _XCLIP_TIMESTAMP,               /* Property type. */
+        8,                              /* Format (bits). */
+        PropModeAppend,                 /* Mode. */
+        (unsigned char *)"dummy",       /* Data. */
+        0                               /* Number data elements. */
+        );
+    
+     {
+         XEvent e;
+    
+         XSync(dpy, False);
+    
+         XIfEvent(
+             dpy,
+             &e,
+             istsevt,
+             (XPointer)&win
+             );
+    
+         return e.xproperty.time;
+     }
+
+}
+
 /* Retrieves the contents of a selections. Arguments are:
  *
  * A display that has been opened.
@@ -329,10 +384,15 @@ xcin(Display * dpy,
     XEvent res;			/* response to event */
     static Atom inc;
     static Atom targets;
+    static Atom timestamp;
     static long chunk_size;
 
     if (!targets) {
 	targets = XInternAtom(dpy, "TARGETS", False);
+    }
+
+    if (!timestamp) {
+	timestamp = XInternAtom(dpy, "TIMESTAMP", False);
     }
 
     if (!inc) {
@@ -362,7 +422,7 @@ xcin(Display * dpy,
 
 	/* put the data into an property */
 	if (evt.xselectionrequest.target == targets) {
-	    Atom types[2] = { targets, target };
+	    Atom types[3] = { timestamp, targets, target };
 
 	    /* send data all at once (not using INCR) */
 	    XChangeProperty(dpy,
@@ -373,9 +433,19 @@ xcin(Display * dpy,
 			    (int) (sizeof(types) / sizeof(Atom))
 		);
 	}
+    else if (evt.xselectionrequest.target == timestamp) {
+        /* send data all at once (not using INCR) */
+	    XChangeProperty(dpy,
+			    *win,
+			    *pty,
+			    XA_INTEGER,
+			    32, PropModeReplace, (unsigned char *) &g_time_sel_owned,
+                1
+		);
+	}
 	else if (len > chunk_size) {
 	    /* send INCR response */
-	    XChangeProperty(dpy, *win, *pty, inc, 32, PropModeReplace, 0, 0);
+	    XChangeProperty(dpy, *win, *pty, inc, 32, PropModeReplace, (unsigned char *) &chunk_size, 1);
 
 	    /* With the INCR mechanism, we need to know
 	     * when the requestor window changes (deletes)
@@ -411,8 +481,9 @@ xcin(Display * dpy,
 	XSendEvent(dpy, evt.xselectionrequest.requestor, 0, 0, &res);
 	XFlush(dpy);
 
-	/* don't treat TARGETS request as contents request */
-	if (evt.xselectionrequest.target == targets)
+	/* don't treat TARGETS/TIMESTAMP request as contents request */
+	if (evt.xselectionrequest.target == targets
+     || evt.xselectionrequest.target == timestamp)
 	    return 0;
 
 	/* if len < chunk_size, then the data was sent all at

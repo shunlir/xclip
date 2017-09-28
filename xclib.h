@@ -32,6 +32,9 @@
 #define XCLIB_XCIN_SELREQ	1
 #define XCLIB_XCIN_INCR		2
 
+/* timestamp of taking owner of selection */
+extern Time g_time_sel_owned;
+
 /* functions in xclib.c */
 extern int xcout(
 	Display*,
@@ -55,6 +58,9 @@ extern int xcin(
 	unsigned long*,
 	unsigned int*
 );
+Time
+xctimestamp(Display *,
+            Window);
 extern void *xcmalloc(size_t);
 extern void *xcrealloc(void*, size_t);
 extern void *xcstrdup(const char *);
